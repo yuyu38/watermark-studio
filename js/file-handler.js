@@ -121,36 +121,98 @@ class FileHandler {
             }
         }
         
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(imageBlob);
-        link.download = `watermarked_${Date.now()}.png`;
-        
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
         if (isIOS) {
-            link.target = '_blank';
-            const newWindow = window.open('', '_blank');
-            if (newWindow) {
-                newWindow.document.write(`
-                    <html>
-                    <head><title>保存图片</title></head>
-                    <body style="margin:0;padding:20px;text-align:center;font-family:sans-serif;">
-                        <p style="margin-bottom:20px;">长按图片保存到相册</p>
-                        <img src="${link.href}" style="max-width:100%;border:1px solid #ddd;" />
-                        <p style="margin-top:20px;color:#666;font-size:12px;">提示：iOS不支持自动下载，请长按图片后选择"存储图像"</p>
-                    </body>
-                    </html>
-                `);
-                newWindow.document.close();
-            } else {
-                throw new Error('弹出窗口被阻止');
-            }
-        } else {
-            link.click();
+            return await this.saveToGalleryiOS(imageBlob);
         }
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(imageBlob);
+        link.download = `watermarked_${Date.now()}.png`;
+        link.click();
         
         URL.revokeObjectURL(link.href);
         return true;
+    }
+
+    /**
+     * iOS专用保存方法 - 使用Canvas转换后通过img标签保存
+     */
+    async saveToGalleryiOS(imageBlob) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                const dataURL = canvas.toDataURL('image/png', 1.0);
+                
+                const overlay = document.createElement('div');
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.95);
+                    z-index: 99999;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                    box-sizing: border-box;
+                `;
+                
+                const title = document.createElement('p');
+                title.textContent = '长按图片保存到相册';
+                title.style.cssText = 'color: white; font-size: 18px; margin-bottom: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;';
+                
+                const saveImg = document.createElement('img');
+                saveImg.src = dataURL;
+                saveImg.style.cssText = 'max-width: 100%; max-height: 70vh; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);';
+                
+                const hint = document.createElement('p');
+                hint.textContent = '提示：iOS请长按图片，选择"存储图像"或"添加到照片"';
+                hint.style.cssText = 'color: #aaa; font-size: 13px; margin-top: 20px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif;';
+                
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = '关闭';
+                closeBtn.style.cssText = `
+                    margin-top: 20px;
+                    padding: 10px 30px;
+                    background: #007AFF;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                `;
+                closeBtn.onclick = () => overlay.remove();
+                
+                overlay.appendChild(title);
+                overlay.appendChild(saveImg);
+                overlay.appendChild(hint);
+                overlay.appendChild(closeBtn);
+                
+                overlay.onclick = (e) => {
+                    if (e.target === overlay) overlay.remove();
+                };
+                
+                document.body.appendChild(overlay);
+                resolve(true);
+            };
+            
+            img.onerror = () => {
+                reject(new Error('图片处理失败'));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
     }
 
     /**
@@ -177,24 +239,8 @@ class FileHandler {
         
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
-        if (isIOS) {
-            const newWindow = window.open('', '_blank');
-            if (newWindow) {
-                newWindow.document.write(`
-                    <html>
-                    <head><title>复制图片</title></head>
-                    <body style="margin:0;padding:20px;text-align:center;font-family:sans-serif;">
-                        <p style="margin-bottom:20px;">长按图片复制到剪贴板</p>
-                        <img src="${URL.createObjectURL(imageBlob)}" style="max-width:100%;border:1px solid #ddd;" />
-                        <p style="margin-top:20px;color:#666;font-size:12px;">提示：长按图片后选择"拷贝"</p>
-                    </body>
-                    </html>
-                `);
-                newWindow.document.close();
-                return true;
-            } else {
-                throw new Error('弹出窗口被阻止');
-            }
+        if (isIOS || !navigator.clipboard || !window.ClipboardItem) {
+            return await this.showCopyGuideiOS(imageBlob);
         }
         
         try {
@@ -205,20 +251,92 @@ class FileHandler {
             return true;
         } catch (error) {
             console.error('Copy to clipboard failed:', error);
-            try {
-                const textarea = document.createElement('textarea');
-                textarea.value = '图片已生成，请截图后复制';
-                textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                throw new Error('不支持剪贴板图片复制');
-            } catch (fallbackError) {
-                return false;
-            }
+            return await this.showCopyGuideiOS(imageBlob);
         }
+    }
+
+    /**
+     * iOS复制引导 - 显示图片并提示用户手动复制
+     */
+    async showCopyGuideiOS(imageBlob) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                const dataURL = canvas.toDataURL('image/png', 1.0);
+                
+                const overlay = document.createElement('div');
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.95);
+                    z-index: 99999;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                    box-sizing: border-box;
+                `;
+                
+                const title = document.createElement('p');
+                title.textContent = '复制图片到剪贴板';
+                title.style.cssText = 'color: white; font-size: 18px; margin-bottom: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;';
+                
+                const copyImg = document.createElement('img');
+                copyImg.src = dataURL;
+                copyImg.style.cssText = 'max-width: 100%; max-height: 65vh; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);';
+                
+                const hint = document.createElement('p');
+                hint.innerHTML = 'iOS不支持自动复制<br>请长按图片，选择"拷贝"后粘贴使用<br>或截图后手动复制';
+                hint.style.cssText = 'color: #aaa; font-size: 13px; margin-top: 20px; text-align: center; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, sans-serif;';
+                
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = '关闭';
+                closeBtn.style.cssText = `
+                    margin-top: 20px;
+                    padding: 10px 30px;
+                    background: #007AFF;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                `;
+                closeBtn.onclick = () => {
+                    overlay.remove();
+                    resolve(true);
+                };
+                
+                overlay.appendChild(title);
+                overlay.appendChild(copyImg);
+                overlay.appendChild(hint);
+                overlay.appendChild(closeBtn);
+                
+                overlay.onclick = (e) => {
+                    if (e.target === overlay) {
+                        overlay.remove();
+                        resolve(true);
+                    }
+                };
+                
+                document.body.appendChild(overlay);
+            };
+            
+            img.onerror = () => {
+                reject(new Error('图片处理失败'));
+            };
+            
+            img.src = URL.createObjectURL(imageBlob);
+        });
     }
 
     /**
