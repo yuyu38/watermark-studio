@@ -124,10 +124,42 @@ class FileHandler {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(imageBlob);
         link.download = `watermarked_${Date.now()}.png`;
-        link.click();
+        
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        if (isIOS) {
+            link.target = '_blank';
+            const newWindow = window.open('', '_blank');
+            if (newWindow) {
+                newWindow.document.write(`
+                    <html>
+                    <head><title>保存图片</title></head>
+                    <body style="margin:0;padding:20px;text-align:center;font-family:sans-serif;">
+                        <p style="margin-bottom:20px;">长按图片保存到相册</p>
+                        <img src="${link.href}" style="max-width:100%;border:1px solid #ddd;" />
+                        <p style="margin-top:20px;color:#666;font-size:12px;">提示：iOS不支持自动下载，请长按图片后选择"存储图像"</p>
+                    </body>
+                    </html>
+                `);
+                newWindow.document.close();
+            } else {
+                throw new Error('弹出窗口被阻止');
+            }
+        } else {
+            link.click();
+        }
         
         URL.revokeObjectURL(link.href);
         return true;
+    }
+
+    /**
+     * 显示提示信息（供file-handler内部使用）
+     */
+    showToast(message, type) {
+        if (this.bridge.showToast) {
+            this.bridge.showToast(message, type);
+        }
     }
 
     /**
@@ -143,6 +175,28 @@ class FileHandler {
             }
         }
         
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        if (isIOS) {
+            const newWindow = window.open('', '_blank');
+            if (newWindow) {
+                newWindow.document.write(`
+                    <html>
+                    <head><title>复制图片</title></head>
+                    <body style="margin:0;padding:20px;text-align:center;font-family:sans-serif;">
+                        <p style="margin-bottom:20px;">长按图片复制到剪贴板</p>
+                        <img src="${URL.createObjectURL(imageBlob)}" style="max-width:100%;border:1px solid #ddd;" />
+                        <p style="margin-top:20px;color:#666;font-size:12px;">提示：长按图片后选择"拷贝"</p>
+                    </body>
+                    </html>
+                `);
+                newWindow.document.close();
+                return true;
+            } else {
+                throw new Error('弹出窗口被阻止');
+            }
+        }
+        
         try {
             const item = new ClipboardItem({
                 [imageBlob.type]: imageBlob
@@ -151,7 +205,19 @@ class FileHandler {
             return true;
         } catch (error) {
             console.error('Copy to clipboard failed:', error);
-            return false;
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = '图片已生成，请截图后复制';
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                throw new Error('不支持剪贴板图片复制');
+            } catch (fallbackError) {
+                return false;
+            }
         }
     }
 
