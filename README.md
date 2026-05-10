@@ -1,7 +1,7 @@
 # 🏷️ 水印工坊
 
 > 🔒 **100%本地运行 · 无需联网**
->
+> 支持电脑端、移动端（安卓、苹果、鸿蒙）
 
 [![GitHub Pages](https://img.shields.io/badge/GitHub_Pages-Live-brightgreen?style=for-the-badge)](https://yuyu38.github.io/watermark-studio/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
